@@ -1,0 +1,51 @@
+# INNORIX Commercial License
+
+Copyright (c) 2026 INNORIX Co., Ltd.
+
+All rights reserved.
+
+This repository contains official integration examples, configuration samples, reference implementations, and documentation for integrating the INNORIX Platform with external platforms, services, and enterprise systems.
+
+## Permitted Use
+
+You may:
+
+- View and study the source code.
+- Use the examples as reference for integrating the INNORIX Platform.
+- Modify the examples for internal evaluation, testing, or integration purposes.
+- Build applications that interact with the INNORIX Platform using the documented APIs and examples.
+
+## Restrictions
+
+You may not:
+
+- Redistribute this repository as your own product.
+- Sell, sublicense, or commercially distribute this repository or substantial portions of its contents without prior written permission.
+- Remove or modify copyright notices.
+- Use the INNORIX name, trademarks, logos, or branding without prior written permission from INNORIX Co., Ltd.
+- Represent these examples as official production software developed by your organization.
+
+## INNORIX Platform
+
+The examples contained in this repository are designed to work with the INNORIX Platform.
+
+The INNORIX Platform, including the INNORIX Server, INNORIX Agent, SDK, APIs, and related software, is proprietary software and is licensed separately under the applicable commercial license agreement.
+
+## Contributions
+
+Unless otherwise agreed in writing, any contributions, suggestions, bug reports, or improvements submitted to this repository may be used by INNORIX Co., Ltd. without restriction or compensation.
+
+## Disclaimer
+
+This repository is provided for reference and educational purposes only.
+
+The examples are supplied "AS IS", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+INNORIX Co., Ltd. shall not be liable for any direct, indirect, incidental, special, exemplary, or consequential damages arising from the use of this repository or the INNORIX Platform.
+
+## Contact
+
+For commercial licensing, enterprise support, or partnership inquiries, please contact:
+
+INNORIX Co., Ltd.
+https://www.innorix.com
