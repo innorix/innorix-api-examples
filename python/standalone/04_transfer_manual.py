@@ -1,0 +1,175 @@
+"""
+04 - One-to-one transfer + progress monitoring
+=============================================
+
+The core flow: create an immediate transfer between two registered devices,
+then poll its status until it reaches a terminal state. Status is an integer
+code (see TRANSFER_STATUS below); percent is 0-100.
+
+This file is self-contained: it embeds a minimal client so it can be read and
+run on its own.
+
+Endpoints:
+  POST /api/transfer/manualTransfer
+  GET  /api/transfer/{monitorId}/detail-unified
+
+Run:
+  python 04_transfer_manual.py
+"""
+
+from __future__ import annotations
+
+import os
+import time
+import json
+import logging
+
+import requests
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# --------------------------------------------------------------------------- #
+# Configuration
+# --------------------------------------------------------------------------- #
+BASE_URL = os.getenv("INNORIX_BASE_URL", "https://app.innorix.com")
+WORKSPACE_ID = os.getenv("INNORIX_WORKSPACE_ID", "<WORKSPACE_ID>")
+EMAIL = os.getenv("INNORIX_EMAIL", "<YOUR_EMAIL>")
+PASSWORD = os.getenv("INNORIX_PASSWORD", "<YOUR_PASSWORD>")
+SOURCE_ID = os.getenv("INNORIX_SOURCE_ID", "<SOURCE_DEVICE_ID>")
+TARGET_ID = os.getenv("INNORIX_TARGET_ID", "<TARGET_DEVICE_ID>")
+TARGET_PATH = os.getenv("INNORIX_TARGET_PATH", "C:/Users/innorix/Downloads")
+SOURCE_PATHS = [p.strip() for p in os.getenv(
+    "INNORIX_SOURCE_PATHS", "C:/Users/innorix/Downloads/image").split(",") if p.strip()]
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s [%(levelname)s] %(message)s",
+                    datefmt="%H:%M:%S")
+log = logging.getLogger("innorix")
+
+# Transfer status codes (must match the server-side enum).
+TRANSFER_STATUS = {
+    -1: "transferQueue", 0: "WaitingTransfer", 1: "StartTransfer",
+    2: "transferComplete", 3: "transferPause", 4: "transferError",
+    5: "transferCancel", 6: "transferring", 7: "transferSkip",
+    8: "transferRetry", 9: "transferPartialComplete", 10: "transferRetryChecking",
+    11: "virusScanning", 12: "syncing", 13: "transferInComming",
+    14: "transferActivity", 99: "transferFail",
+}
+TERMINAL_STATES = {2, 4, 5, 9, 99}  # complete / error / cancel / partial / fail
+
+
+def status_name(code):
+    if code is None:
+        return "unknown"
+    return TRANSFER_STATUS.get(code, f"unknown({code})")
+
+
+# --------------------------------------------------------------------------- #
+# Minimal client
+# --------------------------------------------------------------------------- #
+class ApiError(RuntimeError):
+    """Raised when the API returns a non-2xx response."""
+
+
+class InnorixClient:
+    def __init__(self, base_url: str, workspace_id: str, timeout: float = 15.0):
+        self.base_url = base_url.rstrip("/")
+        self.workspace_id = workspace_id
+        self.timeout = timeout
+        self.session = requests.Session()
+
+    def _request(self, method: str, path: str, **kwargs):
+        kwargs.setdefault("timeout", self.timeout)
+        res = self.session.request(method, f"{self.base_url}{path}", **kwargs)
+        try:
+            res.raise_for_status()
+        except requests.HTTPError as exc:
+            raise ApiError(f"{method} {path} -> {res.status_code}: {res.text[:500]}") from exc
+        if not res.content:
+            return None
+        try:
+            return res.json()
+        except ValueError:
+            return res.text
+
+    def login(self, email: str, password: str) -> str:
+        data = self._request("POST", "/api/auth/login",
+                             json={"email": email, "password": password}, timeout=10)
+        token = data["data"]["user"]["accessToken"]
+        self.session.headers.update({
+            "Authorization": f"Bearer {token}",
+            "x-workspace-id": self.workspace_id,
+            "Content-Type": "application/json",
+        })
+        log.info("logged in")
+        return token
+
+    def is_online(self, device_id: str) -> bool:
+        result = self._request("GET", f"/api/device/connectivity/{device_id}", timeout=10)
+        if isinstance(result, dict):
+            return bool(result.get("data", result))
+        return bool(result)
+
+    def create_transfer(self, source_id, target_id, target_path, source_file_paths) -> str:
+        body = {
+            "sourceId": source_id,
+            "targetId": target_id,
+            "targetPath": target_path,
+            "sourceItem": [{"filePath": p} for p in source_file_paths],
+        }
+        data = self._request("POST", "/api/transfer/manualTransfer", json=body)
+        monitor_id = data["data"]["monitorId"]
+        log.info("transfer created monitorId=%s", monitor_id)
+        return monitor_id
+
+    def get_detail(self, monitor_id: str) -> dict:
+        """GET /api/transfer/{monitorId}/detail-unified (status/percent at top level)."""
+        data = self._request("GET", f"/api/transfer/{monitor_id}/detail-unified",
+                             params={"workSpaceId": self.workspace_id}, timeout=10)
+        if isinstance(data, dict) and "status" not in data and isinstance(data.get("data"), dict):
+            return data["data"]
+        return data
+
+    def wait_for_completion(self, monitor_id: str, interval: float = 3.0) -> int:
+        while True:
+            detail = self.get_detail(monitor_id)
+            raw = detail.get("status")
+            status = int(raw) if raw is not None else None
+            percent = detail.get("percent")
+            log.info("status=%s(%s) percent=%s", status, status_name(status),
+                     f"{percent}%" if percent is not None else "-")
+            if status in TERMINAL_STATES:
+                return status
+            time.sleep(interval)
+
+
+# --------------------------------------------------------------------------- #
+# Run
+# --------------------------------------------------------------------------- #
+def main() -> None:
+    client = InnorixClient(BASE_URL, WORKSPACE_ID)
+    client.login(EMAIL, PASSWORD)
+
+    # Guard: both devices should be online, otherwise the transfer may stall.
+    for role, device_id in (("source", SOURCE_ID), ("target", TARGET_ID)):
+        if not client.is_online(device_id):
+            raise SystemExit(f"{role} device is offline: {device_id}")
+
+    monitor_id = client.create_transfer(
+        source_id=SOURCE_ID,
+        target_id=TARGET_ID,
+        target_path=TARGET_PATH,
+        source_file_paths=SOURCE_PATHS,
+    )
+    print("monitorId:", monitor_id)
+
+    final = client.wait_for_completion(monitor_id, interval=3.0)
+    print(f"final status: {final} ({status_name(final)})")
+
+
+if __name__ == "__main__":
+    main()
